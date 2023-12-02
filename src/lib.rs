@@ -11,6 +11,8 @@ pub struct Regulator<T> {
 }
 
 impl<T> Regulator<T> {
+    #[must_use]
+
     pub fn new(funcs: Vec<Box<dyn Fn(&mut T)>>, exclude: Hasheimer<u8, u8>, sigma: u8) -> Self {
         Self {
             funcs,
@@ -37,15 +39,14 @@ impl<T> Regulator<T> {
                 },
             }
         }).map(|_| {
-            return Result::<(), RegulatorError>::Err(RegulatorError::ConflictDetected)
-        });
+            Result::<(), RegulatorError>::Err(RegulatorError::ConflictDetected)
+        }).transpose()?;
 
         let nob = self.sigma.ilog2();
         (0..=nob).rev().for_each(|bit| {
-            let m = self.sigma & dbg!(1 << bit) > 0;
-            if m == true {
-                self.funcs[bit as usize](item);
-            }
+        if self.sigma & (1 << bit) > 0 {
+            self.funcs[bit as usize](item);
+        }
         });
         Ok(())
     }
@@ -68,8 +69,17 @@ impl Error for RegulatorError {}
         
 
 #[macro_export]
-macro_rules! regulate {
+macro_rules! regulator {
     ($sigma: ident, $($item:ident),*) => {
         Regulator::new(vec![$(Box::new($item)),*], Hasheimer::default(), $sigma);
-    }
+    };
+
+    ($sigma: expr, $($item:expr),*, >| $($conflict_from: expr => $conflict_to: expr),*) => {
+        {
+        let mut hashmap = Hasheimer::default();
+        $(hashmap.raw_insert($conflict_from, $conflict_to.into()));*;
+       
+        Regulator::new(vec![$(Box::new($item)),*], hashmap, $sigma)
+        }
+    };
 }
